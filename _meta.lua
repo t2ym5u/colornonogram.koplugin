@@ -3,5 +3,5 @@ return {
     name        = "colornonogram",
     fullname    = _("Color Nonogram"),
     description = _("Colored picross / nonogram"),
-    version     = "1.1.3",
+    version     = "1.1.4",
 }
