@@ -78,6 +78,160 @@ local function computeClues(grid, n)
 end
 
 -- ---------------------------------------------------------------------------
+-- Uniqueness counter: same line-candidate-enumeration + row/column
+-- propagation-to-a-fixed-point technique as nonogram.koplugin, generalized
+-- for per-cell values in {0=empty, 1..NUM_COLORS} instead of boolean, and
+-- for a color-dependent gap rule: two consecutive clue runs need a
+-- mandatory >=1 empty cell between them ONLY if they're the same color
+-- (this is what computeClues above actually encodes -- two different-
+-- colored runs can sit directly adjacent with zero gap, since they'd never
+-- have merged into one run in the first place).
+-- ---------------------------------------------------------------------------
+
+local NUM_VALUES = NUM_COLORS + 1 -- 0 (empty) plus 1..NUM_COLORS
+
+local function enumerateLines(clue, n)
+    if #clue == 1 and clue[1].len == 0 then
+        local empty = {}
+        for i = 1, n do empty[i] = 0 end
+        return { empty }
+    end
+    local m = #clue
+    local minlen = 0
+    for i, seg in ipairs(clue) do
+        minlen = minlen + seg.len
+        if i < m and clue[i].color == clue[i + 1].color then minlen = minlen + 1 end
+    end
+    if minlen > n then return {} end
+    local slack = n - minlen
+
+    local results = {}
+    local line = {}
+    for i = 1, n do line[i] = 0 end
+
+    local function place(i, pos, gaps_left)
+        if i > m then
+            local copy = {}
+            for j = 1, n do copy[j] = line[j] end
+            results[#results + 1] = copy
+            return
+        end
+        for extra = 0, gaps_left do
+            local start = pos + extra
+            local finish = start + clue[i].len - 1
+            if finish > n then break end
+            for j = start, finish do line[j] = clue[i].color end
+            local mandatory = (i < m and clue[i].color == clue[i + 1].color) and 1 or 0
+            place(i + 1, finish + 1 + mandatory, gaps_left - extra)
+            for j = start, finish do line[j] = 0 end
+        end
+    end
+    place(1, 1, slack)
+    return results
+end
+
+local function achievableSetAt(lines, pos)
+    local seen, count = {}, 0
+    for _, line in ipairs(lines) do
+        local v = line[pos]
+        if not seen[v] then seen[v] = true; count = count + 1 end
+        if count == NUM_VALUES then break end
+    end
+    return seen
+end
+
+local function filterByAchievable(lines, achievable, n)
+    local out = {}
+    for _, line in ipairs(lines) do
+        local ok = true
+        for pos = 1, n do
+            if not achievable[pos][line[pos]] then ok = false; break end
+        end
+        if ok then out[#out + 1] = line end
+    end
+    return out
+end
+
+local function propagate(row_live, col_live, n)
+    local changed = true
+    while changed do
+        changed = false
+        for r = 1, n do
+            local achievable = {}
+            for c = 1, n do achievable[c] = achievableSetAt(col_live[c], r) end
+            local filtered = filterByAchievable(row_live[r], achievable, n)
+            if #filtered == 0 then return false end
+            if #filtered < #row_live[r] then changed = true end
+            row_live[r] = filtered
+        end
+        for c = 1, n do
+            local achievable = {}
+            for r = 1, n do achievable[r] = achievableSetAt(row_live[r], c) end
+            local filtered = filterByAchievable(col_live[c], achievable, n)
+            if #filtered == 0 then return false end
+            if #filtered < #col_live[c] then changed = true end
+            col_live[c] = filtered
+        end
+    end
+    return true
+end
+
+local function copyLiveState(row_live, col_live, n)
+    local r2, c2 = {}, {}
+    for r = 1, n do r2[r] = row_live[r] end
+    for c = 1, n do c2[c] = col_live[c] end
+    return r2, c2
+end
+
+local function countSolutions(row_clues, col_clues, n, limit, node_budget)
+    local row_live, col_live = {}, {}
+    for r = 1, n do row_live[r] = enumerateLines(row_clues[r], n) end
+    for c = 1, n do col_live[c] = enumerateLines(col_clues[c], n) end
+
+    local solutions, nodes, exhausted = 0, 0, false
+
+    local function search(row_live, col_live)
+        if solutions >= limit or exhausted then return end
+        nodes = nodes + 1
+        if nodes > node_budget then exhausted = true; return end
+
+        if not propagate(row_live, col_live, n) then return end
+
+        local all_singletons = true
+        for r = 1, n do
+            if #row_live[r] ~= 1 then all_singletons = false; break end
+        end
+        if all_singletons then
+            solutions = solutions + 1
+            return
+        end
+
+        local best_is_row, best_idx, best_len = true, nil, math.huge
+        for r = 1, n do
+            if #row_live[r] >= 2 and #row_live[r] < best_len then
+                best_len, best_idx, best_is_row = #row_live[r], r, true
+            end
+        end
+        for c = 1, n do
+            if #col_live[c] >= 2 and #col_live[c] < best_len then
+                best_len, best_idx, best_is_row = #col_live[c], c, false
+            end
+        end
+
+        local live = best_is_row and row_live[best_idx] or col_live[best_idx]
+        for _, candidate in ipairs(live) do
+            local r2, c2 = copyLiveState(row_live, col_live, n)
+            if best_is_row then r2[best_idx] = { candidate } else c2[best_idx] = { candidate } end
+            search(r2, c2)
+            if solutions >= limit or exhausted then return end
+        end
+    end
+
+    search(row_live, col_live)
+    return solutions, exhausted
+end
+
+-- ---------------------------------------------------------------------------
 -- ColorNonogramBoard
 -- ---------------------------------------------------------------------------
 
@@ -101,6 +255,17 @@ function ColorNonogramBoard:new(opts)
     return obj
 end
 
+-- There's no "reveal a subset" mechanic here -- the row/col clues ARE the
+-- entire puzzle, deduced from nothing else -- so like nonogram.koplugin
+-- this generates+verifies whole candidate solutions instead of digging:
+-- build a random solution, derive its clues, and keep it only if
+-- countSolutions proves it's the unique grid matching those clues;
+-- otherwise retry.
+local function uniquenessNodeBudget(n)
+    if n <= 6 then return 30000 end
+    return 80000
+end
+
 function ColorNonogramBoard:generate(difficulty)
     self.difficulty = difficulty or self.difficulty
     local n = self.n
@@ -110,42 +275,49 @@ function ColorNonogramBoard:generate(difficulty)
                  or (self.difficulty == "hard")   and 0.70
                  or 0.60
 
-    -- Generate solution: each non-empty cell gets a random color 1..NUM_COLORS
-    -- Ensure no row or column is entirely empty
-    local ok = false
-    local attempts = 0
-    while not ok and attempts < 100 do
-        attempts = attempts + 1
+    local budget = uniquenessNodeBudget(n)
+    local best_solution, best_row_clues, best_col_clues
+
+    for attempt = 1, 400 do
+        local candidate = emptyGrid(n, n, 0)
         for r = 1, n do
             for c = 1, n do
                 if math.random() < density then
-                    self.solution[r][c] = math.random(NUM_COLORS)
+                    candidate[r][c] = math.random(NUM_COLORS)
                 else
-                    self.solution[r][c] = 0
+                    candidate[r][c] = 0
                 end
             end
         end
-        -- Check no empty rows/cols
-        ok = true
+
+        local no_empty_lines = true
         for r = 1, n do
             local has = false
-            for c = 1, n do
-                if self.solution[r][c] ~= 0 then has = true; break end
-            end
-            if not has then ok = false; break end
+            for c = 1, n do if candidate[r][c] ~= 0 then has = true; break end end
+            if not has then no_empty_lines = false; break end
         end
-        if ok then
+        if no_empty_lines then
             for c = 1, n do
                 local has = false
-                for r = 1, n do
-                    if self.solution[r][c] ~= 0 then has = true; break end
-                end
-                if not has then ok = false; break end
+                for r = 1, n do if candidate[r][c] ~= 0 then has = true; break end end
+                if not has then no_empty_lines = false; break end
+            end
+        end
+
+        if no_empty_lines then
+            local row_clues, col_clues = computeClues(candidate, n)
+            if not best_solution then
+                best_solution, best_row_clues, best_col_clues = candidate, row_clues, col_clues
+            end
+            local solutions, exhausted = countSolutions(row_clues, col_clues, n, 2, budget)
+            if solutions == 1 and not exhausted then
+                best_solution, best_row_clues, best_col_clues = candidate, row_clues, col_clues
+                break
             end
         end
     end
 
-    self.row_clues, self.col_clues = computeClues(self.solution, n)
+    self.solution, self.row_clues, self.col_clues = best_solution, best_row_clues, best_col_clues
     self.user  = emptyGrid(n, n, 0)
     self.wrong = emptyGrid(n, n, false)
     self.undo:clear()
