@@ -92,6 +92,8 @@ function ColorNonogramScreen:buildLayout()
         and math.max(right_panel_width - Size.span.horizontal_default, 100)
         or  math.floor(sw * 0.9)
 
+    self.status_text:setMaxWidth(is_landscape and button_width or board_total)
+
     local title_bar = self:buildTitleBar(_("Color Nonogram"), function()
         return {
             { text = _("New game"),            callback = function() self:onNewGame() end },

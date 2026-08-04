@@ -158,7 +158,7 @@ function ColorNonogramBoardWidget:paintTo(bb, x, y)
             local txt = tostring(len_val)
             local m   = RenderText:sizeUtf8Text(0, bw - 2, face, txt, true, false)
             local tx  = bx + math.floor((bw - m.x) / 2)
-            local ty  = by + math.floor((bh - (m.y_bottom - m.y_top)) / 2) - m.y_top
+            local ty  = by + math.floor((bh - (m.y_bottom - m.y_top)) / 2)
             RenderText:renderUtf8Text(bb, tx, ty, face, txt, true, false, tc)
         end
     end
@@ -181,7 +181,7 @@ function ColorNonogramBoardWidget:paintTo(bb, x, y)
                 local txt = "-"
                 local m   = RenderText:sizeUtf8Text(0, math.floor(cw), face, txt, true, false)
                 local tx  = col_x + math.floor((cw - m.x) / 2)
-                local ty  = slot_y + math.floor((ch - (m.y_bottom - m.y_top)) / 2) - m.y_top
+                local ty  = slot_y + math.floor((ch - (m.y_bottom - m.y_top)) / 2)
                 RenderText:renderUtf8Text(bb, tx, ty, face, txt, true, false, clue_tc)
             end
         end
@@ -204,7 +204,7 @@ function ColorNonogramBoardWidget:paintTo(bb, x, y)
                 local txt = "-"
                 local m   = RenderText:sizeUtf8Text(0, math.floor(cw), face, txt, true, false)
                 local tx  = slot_x + math.floor((cw - m.x) / 2)
-                local ty  = row_y + math.floor((ch - (m.y_bottom - m.y_top)) / 2) - m.y_top
+                local ty  = row_y + math.floor((ch - (m.y_bottom - m.y_top)) / 2)
                 RenderText:renderUtf8Text(bb, tx, ty, face, txt, true, false, clue_tc)
             end
         end
