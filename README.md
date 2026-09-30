@@ -16,6 +16,7 @@ Like a Nonogram but cells are filled with colours. Each clue gives a colour and 
 - **Colour palette** — rendered as distinct patterns on greyscale e-ink
 - **Cross mark** — mark cells known to be empty
 - **Check** — highlights incorrect cells
+- **Hint** — two taps: the first says which cell is about to give, the second acts on it. A cell that contradicts the solution is always reported before a fresh one is revealed
 - **Auto-save** — puzzle state saved and restored on next launch
 
 ## Installation

@@ -1,5 +1,6 @@
 local grid_utils = require("grid_utils")
 local UndoStack  = require("undo_stack")
+local Hint      = require("hint")
 
 local emptyGrid = grid_utils.emptyGrid
 
@@ -338,6 +339,17 @@ function ColorNonogramBoard:tapCell(r, c)
     return true
 end
 
+-- Like tapCell(), but goes straight to a colour instead of cycling. Used by
+-- the Hint button, and undoable through the same stack as a hand-made move.
+function ColorNonogramBoard:setCellColor(r, c, v)
+    local old = self.user[r][c]
+    if old == v then return true end
+    self.undo:push{ r = r, c = c, old = old }
+    self.user[r][c]  = v
+    self.wrong[r][c] = false
+    return true
+end
+
 function ColorNonogramBoard:undoMove()
     local entry = self.undo:pop()
     if not entry then return false end
@@ -411,6 +423,14 @@ end
 -- ---------------------------------------------------------------------------
 -- Serialization
 -- ---------------------------------------------------------------------------
+
+Hint.install(ColorNonogramBoard, {
+    getUser     = function(b, r, c) return b.user[r][c] end,
+    getSolution = function(b, r, c) return b.solution[r][c] end,
+    isEmpty     = function(v) return v == 0 end,
+    setCell     = function(b, r, c, v) return b:setCellColor(r, c, v) end,
+    blank       = 0,
+})
 
 function ColorNonogramBoard:serialize()
     local n = self.n
