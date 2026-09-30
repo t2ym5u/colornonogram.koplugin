@@ -4,7 +4,7 @@ A Colour Nonogram (Colour Picross) puzzle plugin for [KOReader](https://github.c
 
 ## Screenshot
 
-*(Screenshot to be added.)*
+![Screenshot](images/colornonogram.png)
 
 ## Rules
 
