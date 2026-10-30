@@ -30,10 +30,9 @@ Like a Nonogram but cells are filled with colours. Each clue gives a colour and 
 
 | Action | How |
 |--------|-----|
-| Cycle cell colour | Tap cell |
-| Mark as empty | Long-press or right-tap |
+| Cycle cell colour | Tap cell (the cycle ends back on empty) |
 | Check progress | Tap **Check** |
-| New puzzle | Tap **New** |
+| New puzzle | Tap **New game** |
 | Show rules | Tap **Rules** |
 
 ## License

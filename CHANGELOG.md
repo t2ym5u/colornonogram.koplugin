@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-10-30
+
+### Changed
+- Redesigned play screen: the board, clues included, fills the room the
+  controls leave, with one edge around it and a full-width
+  Check/Hint/Clear/Undo bar.
+- Reveal moved from the action bar to the title-bar menu as "Show solution",
+  after the size and "Difficulty: Medium" (was "Diff: Medium") entries.
+- The status line reads "10×10 · Medium · Filled: 20/60" and wraps in
+  landscape instead of being cut off.
+- Once the picture is complete (or shown), the action bar shows "New game" in
+  place of its buttons.
+
+### Fixed
+- The board overflowed the screen on clue-heavy puzzles: the grid was sized on
+  its own and the clue strips were added on top. Clues and grid now share one
+  cell size that fits.
+- Clue numbers overflowed their slots on high-DPI screens; they are now fitted
+  to them. The closing grid lines no longer spill past the board's edge.
+- The rules promised a long-press to mark a cell empty, which the game never
+  did; they now say a tap cycles the colours and back to empty.
+- An applied Hint no longer wipes the saved game (game-common saved it as
+  nil). When a hint fills the last cell, the status now shows the win message.
+
 ## [1.2.2] - 2026-10-07
 
 ### Fixed

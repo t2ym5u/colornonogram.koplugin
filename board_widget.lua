@@ -50,6 +50,8 @@ local C_WRONG_DOT = Blitbuffer.COLOR_GRAY_4
 local ColorNonogramBoardWidget = GridWidgetBase:extend{
     board      = nil,
     size_ratio = 0.65,
+    max_width  = nil,   -- pixel budget for clues + grid (nil = unbounded)
+    max_height = nil,
 }
 
 function ColorNonogramBoardWidget:init()
@@ -70,8 +72,30 @@ function ColorNonogramBoardWidget:init()
         if l > max_col_clue_len then max_col_clue_len = l end
     end
 
-    self.clue_w = math.ceil(max_row_clue_len * self.cell_w)
-    self.clue_h = math.ceil(max_col_clue_len * self.cell_h)
+    -- The base sizes the grid alone from size_ratio, but the clue strips
+    -- add max_row_clue_len columns and max_col_clue_len rows of cells on
+    -- top of it, which pushed the grid off-screen on clue-heavy puzzles.
+    -- Pick one cell size so clues + grid fit max_width x max_height.
+    -- Given a budget, fill it; without one, keep the base's size_ratio.
+    local cell = math.min(self.cell_w, self.cell_h)
+    if self.max_width or self.max_height then
+        cell = math.huge
+        if self.max_width then
+            cell = math.min(cell, self.max_width / (n + max_row_clue_len))
+        end
+        if self.max_height then
+            cell = math.min(cell, self.max_height / (n + max_col_clue_len))
+        end
+    end
+    cell = math.max(8, math.floor(cell))
+    self.size      = cell * n
+    self.cell_w    = cell
+    self.cell_h    = cell
+    self.cell_w_px = cell
+    self.cell_h_px = cell
+
+    self.clue_w = max_row_clue_len * cell
+    self.clue_h = max_col_clue_len * cell
 
     local total_w = self.clue_w + self.size
     local total_h = self.clue_h + self.size
@@ -81,9 +105,22 @@ function ColorNonogramBoardWidget:init()
     self.grid_ox = self.clue_w
     self.grid_oy = self.clue_h
 
-    local cell_min  = math.min(self.cell_w, self.cell_h)
-    local clue_size = math.max(8, math.floor(cell_min * 0.50))
-    self.clue_face  = Font:getFace("cfont", clue_size)
+    -- Largest clue font whose widest number fits a clue slot. Font:getFace
+    -- scales its size by DPI, so measure rather than derive it from pixels;
+    -- measure unbounded, since sizeUtf8Text truncates at its width argument.
+    local sample = tostring(n):gsub("%d", "8")
+    local lo, hi, best = 6, math.max(6, cell), 6
+    while lo <= hi do
+        local mid  = math.floor((lo + hi) / 2)
+        local face = Font:getFace("cfont", mid)
+        local m    = RenderText:sizeUtf8Text(0, math.huge, face, sample, true, false)
+        if m.x <= cell * 0.8 and (m.y_top + m.y_bottom) <= cell * 0.6 then
+            best, lo = mid, mid + 1
+        else
+            hi = mid - 1
+        end
+    end
+    self.clue_face = Font:getFace("cfont", best)
 
     -- Re-register gesture events with new paint_rect
     self.ges_events = {
@@ -156,7 +193,7 @@ function ColorNonogramBoardWidget:paintTo(bb, x, y)
             bb:paintRect(bx + 1, by + 1, bw - 2, bh - 2, bg)
             local tc = CELL_TEXT_COLOR[color_idx] or C_LINE
             local txt = tostring(len_val)
-            local m   = RenderText:sizeUtf8Text(0, bw - 2, face, txt, true, false)
+            local m   = RenderText:sizeUtf8Text(0, math.huge, face, txt, true, false)
             local tx  = bx + math.floor((bw - m.x) / 2)
             local ty  = by + math.floor((bh - (m.y_bottom - m.y_top)) / 2)
             RenderText:renderUtf8Text(bb, tx, ty, face, txt, true, false, tc)
@@ -179,7 +216,7 @@ function ColorNonogramBoardWidget:paintTo(bb, x, y)
             else
                 -- Empty clue: just a dash
                 local txt = "-"
-                local m   = RenderText:sizeUtf8Text(0, math.floor(cw), face, txt, true, false)
+                local m   = RenderText:sizeUtf8Text(0, math.huge, face, txt, true, false)
                 local tx  = col_x + math.floor((cw - m.x) / 2)
                 local ty  = slot_y + math.floor((ch - (m.y_bottom - m.y_top)) / 2)
                 RenderText:renderUtf8Text(bb, tx, ty, face, txt, true, false, clue_tc)
@@ -202,7 +239,7 @@ function ColorNonogramBoardWidget:paintTo(bb, x, y)
                               entry.color, entry.len)
             else
                 local txt = "-"
-                local m   = RenderText:sizeUtf8Text(0, math.floor(cw), face, txt, true, false)
+                local m   = RenderText:sizeUtf8Text(0, math.huge, face, txt, true, false)
                 local tx  = slot_x + math.floor((cw - m.x) / 2)
                 local ty  = row_y + math.floor((ch - (m.y_bottom - m.y_top)) / 2)
                 RenderText:renderUtf8Text(bb, tx, ty, face, txt, true, false, clue_tc)
@@ -236,8 +273,11 @@ function ColorNonogramBoardWidget:paintTo(bb, x, y)
     local thick_line = math.max(2, math.floor(math.min(cw, ch) / 10))
     for i = 0, n do
         local lw = (i == 0 or i == n) and thick_line or thin_line
-        local px = ox + math.floor(i * cw)
-        local py = oy + math.floor(i * ch)
+        -- The closing line sits inside the grid so it doesn't spill past
+        -- the widget's own border.
+        local inset = (i == n) and lw or 0
+        local px = ox + math.floor(i * cw) - inset
+        local py = oy + math.floor(i * ch) - inset
         drawLine(bb, px, oy, lw, gsize, C_LINE)
         drawLine(bb, ox, py, gsize, lw, C_LINE)
     end
