@@ -7,7 +7,6 @@ local function lrequire(name)
     return package.loaded[key]
 end
 
-local ButtonTable     = require("ui/widget/buttontable")
 local Device          = require("device")
 local FrameContainer  = require("ui/widget/container/framecontainer")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
@@ -37,7 +36,7 @@ Rules:
 • Runs of the same colour must have at least one empty cell between them.
 • Runs of different colours may be directly adjacent (no gap needed).
 
-Tap a cell to cycle through available colours. Mark cells as empty with a long-press.
+Tap a cell to cycle it through the colours and back to empty.
 ]])
 
 local GAME_RULES_FR = [[
@@ -51,7 +50,7 @@ Règles :
 • Deux séquences de couleurs différentes peuvent être directement adjacentes (sans case vide entre elles).
 • Deux séquences de la même couleur doivent avoir au moins une case vide entre elles.
 
-Appuyez sur une case pour faire défiler les couleurs disponibles. Appui long pour marquer une case vide.
+Appuyez sur une case pour lui faire parcourir les couleurs, puis revenir à vide.
 ]]
 
 local ColorNonogramScreen = ScreenBase:extend{}
@@ -72,71 +71,62 @@ function ColorNonogramScreen:serializeState()
 end
 
 function ColorNonogramScreen:buildLayout()
-    local sw           = DeviceScreen:getWidth()
     local is_landscape = self:isLandscape()
-
-    self.board_widget = ColorNonogramBoardWidget:new{
-        board        = self.board,
-        onCellTap_cb = function(r, c) self:onCellTap(r, c) end,
-    }
-
-    local board_frame = FrameContainer:new{
-        padding = Size.padding.large,
-        margin  = Size.margin.default,
-        self.board_widget,
-    }
-
-    local board_total       = self.board_widget.dimen.w + (Size.padding.large + Size.margin.default) * 2
-    local right_panel_width = sw - board_total - Size.span.horizontal_default
-    local button_width = is_landscape
-        and math.max(right_panel_width - Size.span.horizontal_default, 100)
-        or  math.floor(sw * 0.9)
-
-    self.status_text:setMaxWidth(is_landscape and button_width or board_total)
 
     local title_bar = self:buildTitleBar(_("Color Nonogram"), function()
         return {
             { text = _("New game"),            callback = function() self:onNewGame() end },
             { text = self:getSizeButtonText(), callback = function() self:openSizeMenu() end },
             { text = self:getDiffButtonText(), callback = function() self:openDifficultyMenu() end },
+            { text = _("Show solution"),       callback = function() self:onReveal() end },
             self:makeRulesButtonConfig(GAME_RULES_EN, GAME_RULES_FR),
         }
     end)
 
-    local bottom_buttons = ButtonTable:new{
-        shrink_unneeded_width = true,
-        width   = button_width,
-        buttons = {{
-            { text = _("Check"),  callback = function() self:onCheck() end },
-            { text = _("Hint"), callback = function() self:onHint() end },
-            { text = _("Clear"),  callback = function() self:onClear() end },
-            { text = _("Reveal"), callback = function() self:onReveal() end },
-            { text = _("Undo"),   callback = function() self:onUndo() end },
-        }},
+    self.status_text:setMaxWidth(self:getControlsWidth())
+    local controls = VerticalGroup:new{
+        align = "center",
+        self.status_text,
+        VerticalSpan:new{ width = Size.span.vertical_large },
+        self:buildActionBar({
+            { text = _("Check"), callback = function() self:onCheck() end },
+            { text = _("Hint"),  callback = function() self:onHint() end },
+            { text = _("Clear"), callback = function() self:onClear() end },
+            { text = _("Undo"),  callback = function() self:onUndo() end },
+        }),
+    }
+
+    -- The widget draws its own thick outer border around clues and grid, so
+    -- the frame stays borderless: one visible edge around the board, not two.
+    -- Clues make the board wider and taller than the grid alone, so it is
+    -- fitted to both budget dimensions rather than to a square.
+    local frame_pad   = Size.padding.large
+    local frame_extra = 2 * frame_pad
+    local budget_w, budget_h = self:getBoardBudget(title_bar, controls)
+    self.board_widget = ColorNonogramBoardWidget:new{
+        board        = self.board,
+        max_width    = budget_w - frame_extra,
+        max_height   = budget_h - frame_extra,
+        onCellTap_cb = function(r, c) self:onCellTap(r, c) end,
+    }
+    local board_frame = FrameContainer:new{
+        padding    = frame_pad,
+        margin     = 0,
+        bordersize = 0,
+        self.board_widget,
     }
 
     if is_landscape then
-        local right_panel = VerticalGroup:new{
-            align = "center",
-            self.status_text,
-            VerticalSpan:new{ width = Size.span.vertical_large },
-            bottom_buttons,
-        }
         local content = HorizontalGroup:new{
-            align  = "center",
+            align = "center",
             board_frame,
-            HorizontalSpan:new{ width = Size.span.horizontal_default },
-            right_panel,
+            HorizontalSpan:new{ width = self:getGutter() },
+            controls,
         }
         self:buildLandscapeLayout(title_bar, content)
     else
-        local content = VerticalGroup:new{
-            align = "center",
-            board_frame,
-            VerticalSpan:new{ width = Size.span.vertical_large },
-            self.status_text,
-        }
-        self:buildPortraitLayout(title_bar, content, bottom_buttons)
+        self:buildPortraitLayout(title_bar, board_frame,
+            VerticalGroup:new{ align = "center", controls, VerticalSpan:new{ width = self:getGutter() } })
     end
     self:updateStatus()
 end
@@ -200,7 +190,7 @@ function ColorNonogramScreen:openSizeMenu()
         sizes[#sizes + 1] = { id = sz, text = sz .. "\xC3\x97" .. sz }
     end
     MenuHelper.openSizeMenu{
-        title     = _("Select grid size"),
+        title     = _("Select size"),
         sizes     = sizes,
         current   = self.plugin:getSetting("grid_n", ColorNonogramBoard.DEFAULT_N),
         parent    = self,
@@ -239,10 +229,19 @@ function ColorNonogramScreen:updateStatus(msg)
         local n      = self.board.n
         local diff   = self.plugin:getSetting("difficulty", "medium")
         local label  = MenuHelper.DIFFICULTY_LABELS[diff] or diff
-        status = T(_("%1\xC3\x97%2 \xC2\xB7 %3 \xC2\xB7 Filled: %4/%5"),
-                   n, n, label, filled, total)
+        status = self:joinStatus(
+            T("%1×%1", n),
+            label,
+            T(_("Filled: %1/%2"), filled, total))
     end
     ScreenBase.updateStatus(self, status)
+    -- Every move, hint, undo and reveal ends here, so the bar follows the board.
+    self:refreshActionBar()
+end
+
+-- Show solution copies the solution in, so it ends the round too.
+function ColorNonogramScreen:isRoundOver()
+    return self.board:isWon()
 end
 
 function ColorNonogramScreen:getSizeButtonText()
@@ -253,7 +252,7 @@ end
 function ColorNonogramScreen:getDiffButtonText()
     local diff  = self.plugin:getSetting("difficulty", "medium")
     local label = MenuHelper.DIFFICULTY_LABELS[diff] or diff
-    return T(_("Diff: %1"), label)
+    return T(_("Difficulty: %1"), label)
 end
 
 return ColorNonogramScreen
