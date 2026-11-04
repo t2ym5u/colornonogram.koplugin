@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.0] - 2026-11-04
+
+### Changed
+- New game and opening the game each build one puzzle instead of two: the
+  board used to generate a puzzle on creation that the screen then replaced
+  (or that a saved game overwrote), so opening a saved game no longer
+  waits for a puzzle at all. Today's Daily Challenge grid is a different one
+  than with 1.4.3.
+
 ## [1.4.3] - 2026-11-03
 
 ### Changed

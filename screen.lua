@@ -59,7 +59,7 @@ function ColorNonogramScreen:init()
     local state = self.plugin:loadState()
     local n     = self.plugin:getSetting("grid_n", ColorNonogramBoard.DEFAULT_N)
     local diff  = self.plugin:getSetting("difficulty", "medium")
-    self.board  = ColorNonogramBoard:new{ n = n, difficulty = diff }
+    self.board  = ColorNonogramBoard:new{ n = n, difficulty = diff, empty = true }
     if not self.board:load(state) then
         self.board:generate(diff)
     end
@@ -178,7 +178,7 @@ end
 function ColorNonogramScreen:onNewGame()
     local n    = self.plugin:getSetting("grid_n", ColorNonogramBoard.DEFAULT_N)
     local diff = self.plugin:getSetting("difficulty", "medium")
-    self.board  = ColorNonogramBoard:new{ n = n, difficulty = diff }
+    self.board  = ColorNonogramBoard:new{ n = n, difficulty = diff, empty = true }
     self.board:generate(diff)
     self.plugin:saveState(self.board:serialize())
     self:buildLayout()

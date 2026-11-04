@@ -252,7 +252,9 @@ function ColorNonogramBoard:new(opts)
         wrong      = emptyGrid(n, n, false),
         undo       = UndoStack:new{ max_size = 500 },
     }, self)
-    obj:generate(obj.difficulty)
+    -- opts.empty: the caller loads a save or generates itself, so don't
+    -- build a puzzle that would be thrown away.
+    if not opts.empty then obj:generate(obj.difficulty) end
     return obj
 end
 
