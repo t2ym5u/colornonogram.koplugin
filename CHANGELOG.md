@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.0] - 2026-11-06
+
+### Changed
+- No puzzle needs guessing any more, and the levels are in order. A puzzle
+  used to be accepted when a branching search found it had one solution,
+  so some could only be finished by trial and error (about 1 in 40 on 8×8),
+  and if 400 draws found none, a grid with several solutions was kept.
+  Now a puzzle is kept only if line logic alone finishes it (each row or
+  column, from its clue and the cells already known).
+- Difficulty is now how long that chain of deductions is, counted in
+  sweeps (all rows, or all columns). Easy used to be the emptiest grid,
+  which is the hardest to reason out, and Hard the fullest. Measured over
+  40 puzzles per size: Easy 2.8 / 3.0 sweeps on 6×6 / 8×8 (before 4.2 /
+  5.8), Medium 4.3 / 4.5 (before 3.9 / 4.9), Hard 6.4 / 7.1 (before 3.3 /
+  4.4).
+- A progress bar shows if a puzzle takes a moment to build (Hard is under
+  0.02 s on a desktop, about 0.5 s on a Kobo).
+- The same seed gives a different puzzle than in 1.5.2, so the Daily
+  Challenge puzzle changes once.
+
+### Fixed
+- The puzzle counts as solved as soon as the grid keeps every clue, even
+  if it differs from the stored answer (a game saved with an older version
+  may have more than one).
+
 ## [1.5.2] - 2026-11-04
 
 ### Fixed

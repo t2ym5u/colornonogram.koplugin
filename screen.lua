@@ -20,6 +20,7 @@ local T               = require("ffi/util").template
 
 local ScreenBase                = require("screen_base")
 local MenuHelper                = require("menu_helper")
+local GenProgress               = require("gen_progress")
 local ColorNonogramBoard        = lrequire("board")
 local ColorNonogramBoardWidget  = lrequire("board_widget")
 
@@ -61,7 +62,7 @@ function ColorNonogramScreen:init()
     local diff  = self.plugin:getSetting("difficulty", "medium")
     self.board  = ColorNonogramBoard:new{ n = n, difficulty = diff, empty = true }
     if not self.board:load(state) then
-        self.board:generate(diff)
+        GenProgress.run(function(on_progress) self.board:generate(diff, on_progress) end)
     end
     ScreenBase.init(self)
 end
@@ -179,7 +180,7 @@ function ColorNonogramScreen:onNewGame()
     local n    = self.plugin:getSetting("grid_n", ColorNonogramBoard.DEFAULT_N)
     local diff = self.plugin:getSetting("difficulty", "medium")
     self.board  = ColorNonogramBoard:new{ n = n, difficulty = diff, empty = true }
-    self.board:generate(diff)
+    GenProgress.run(function(on_progress) self.board:generate(diff, on_progress) end)
     self.plugin:saveState(self.board:serialize())
     self:buildLayout()
     UIManager:setDirty(self, function() return "ui", self.dimen end)

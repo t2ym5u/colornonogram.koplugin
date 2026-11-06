@@ -153,28 +153,41 @@ local function filterByAchievable(lines, achievable, n)
     return out
 end
 
+-- Line logic to a fixpoint: every row keeps only the placements that fit
+-- the values its cells can still take (from the columns), then every
+-- column does the same with the rows; repeat until nothing changes. This
+-- is how a player solves it without guessing: each line on its own, from
+-- its clue and the cells already known, settles the cells all its
+-- placements agree on.
+-- Returns ok (false on a contradiction) and the number of half-passes that
+-- learned something (all rows, or all columns, = one half-pass): how long
+-- the chain of deductions is.
 local function propagate(row_live, col_live, n)
-    local changed = true
+    local changed, steps = true, 0
     while changed do
         changed = false
+        local any = false
         for r = 1, n do
             local achievable = {}
             for c = 1, n do achievable[c] = achievableSetAt(col_live[c], r) end
             local filtered = filterByAchievable(row_live[r], achievable, n)
-            if #filtered == 0 then return false end
-            if #filtered < #row_live[r] then changed = true end
+            if #filtered == 0 then return false, steps end
+            if #filtered < #row_live[r] then any = true end
             row_live[r] = filtered
         end
+        if any then steps = steps + 1; changed = true end
+        any = false
         for c = 1, n do
             local achievable = {}
             for r = 1, n do achievable[r] = achievableSetAt(row_live[r], c) end
             local filtered = filterByAchievable(col_live[c], achievable, n)
-            if #filtered == 0 then return false end
-            if #filtered < #col_live[c] then changed = true end
+            if #filtered == 0 then return false, steps end
+            if #filtered < #col_live[c] then any = true end
             col_live[c] = filtered
         end
+        if any then steps = steps + 1; changed = true end
     end
-    return true
+    return true, steps
 end
 
 local function copyLiveState(row_live, col_live, n)
@@ -261,69 +274,123 @@ end
 -- There's no "reveal a subset" mechanic here -- the row/col clues ARE the
 -- entire puzzle, deduced from nothing else -- so like nonogram.koplugin
 -- this generates+verifies whole candidate solutions instead of digging:
--- build a random solution, derive its clues, and keep it only if
--- countSolutions proves it's the unique grid matching those clues;
--- otherwise retry.
-local function uniquenessNodeBudget(n)
-    if n <= 6 then return 30000 end
-    return 80000
+-- build a random solution, derive its clues, keep it only if it passes the
+-- check below; otherwise retry.
+--
+-- 1.6.0: no guessing. A grid is kept only if lineSolve() finishes it --
+-- pure line-by-line logic, never "assume this cell, see if it breaks" --
+-- which also proves the solution unique. (Up to 1.5.x a branching search
+-- proved uniqueness, and accepted grids only trial and error could solve;
+-- when 400 draws found none it even kept a grid with several solutions.)
+-- Difficulty is how long the chain of deductions is: the half-passes
+-- lineSolve() needs (rows, then columns, ...), which must fall in the
+-- level's band below, on a grid drawn at the level's fill density. Fuller
+-- grids give long runs that settle many cells at once, so Easy is the
+-- fullest and Hard the emptiest (it used to be the other way round).
+local DENSITY = {
+    [6] = { easy = 0.75, medium = 0.60, hard = 0.50 },
+    [8] = { easy = 0.75, medium = 0.60, hard = 0.55 },
+}
+-- [n][difficulty] = { fewest half-passes, most half-passes }
+local STEP_BAND = {
+    [6] = { easy = { 1, 3 }, medium = { 4, 5 }, hard = { 6, math.huge } },
+    [8] = { easy = { 1, 3 }, medium = { 4, 5 }, hard = { 6, math.huge } },
+}
+local MAX_ATTEMPTS      = 400   -- draws; see the fallbacks below
+local FALLBACK_DENSITY  = 0.85  -- nearly every such grid solves line by line
+local FALLBACK_ATTEMPTS = 100
+
+local function lineSolve(row_clues, col_clues, n)
+    local row_live, col_live = {}, {}
+    for r = 1, n do row_live[r] = enumerateLines(row_clues[r], n) end
+    for c = 1, n do col_live[c] = enumerateLines(col_clues[c], n) end
+    local ok, steps = propagate(row_live, col_live, n)
+    if not ok then return false, steps end
+    for r = 1, n do
+        if #row_live[r] ~= 1 then return false, steps end
+    end
+    return true, steps
 end
 
-function ColorNonogramBoard:generate(difficulty)
+local function randomGrid(n, density)
+    local g = emptyGrid(n, n, 0)
+    for r = 1, n do
+        for c = 1, n do
+            if math.random() < density then g[r][c] = math.random(NUM_COLORS) end
+        end
+    end
+    return g
+end
+
+local function hasEmptyLine(row_clues, col_clues, n)
+    for i = 1, n do
+        if row_clues[i][1].len == 0 or col_clues[i][1].len == 0 then return true end
+    end
+    return false
+end
+
+-- How far `steps` falls outside `band` (0 = inside).
+local function bandDistance(steps, band)
+    if steps < band[1] then return band[1] - steps end
+    if steps > band[2] then return steps - band[2] end
+    return 0
+end
+
+-- on_progress (optional): called with a 0..1 fraction as it goes.
+-- Returns how the grid was found, for the specs: "band" (the usual case),
+-- "near" (line-solvable but outside the level's band), "dense" (the denser
+-- fallback) or "full" (every cell filled: each clue is its whole line).
+-- Draws are counted, never timed, so a seed always gives the same grid.
+function ColorNonogramBoard:generate(difficulty, on_progress)
     self.difficulty = difficulty or self.difficulty
     local n = self.n
+    local diff = DENSITY[n] and DENSITY[n][self.difficulty] and self.difficulty or "medium"
+    local density = (DENSITY[n] or DENSITY[8])[diff]
+    local band = (STEP_BAND[n] or STEP_BAND[8])[diff]
 
-    -- Fill density: 55-65%
-    local density = (self.difficulty == "easy")   and 0.50
-                 or (self.difficulty == "hard")   and 0.70
-                 or 0.60
-
-    local budget = uniquenessNodeBudget(n)
-    local best_solution, best_row_clues, best_col_clues
-
-    for attempt = 1, 400 do
-        local candidate = emptyGrid(n, n, 0)
-        for r = 1, n do
-            for c = 1, n do
-                if math.random() < density then
-                    candidate[r][c] = math.random(NUM_COLORS)
-                else
-                    candidate[r][c] = 0
+    local best, best_rc, best_cc, best_dist, how
+    for attempt = 1, MAX_ATTEMPTS do
+        -- Hard takes ~20 draws, the others a handful
+        if on_progress then on_progress(attempt / (attempt + 20)) end
+        local candidate = randomGrid(n, density)
+        local row_clues, col_clues = computeClues(candidate, n)
+        if not hasEmptyLine(row_clues, col_clues, n) then
+            local solved, steps = lineSolve(row_clues, col_clues, n)
+            if solved then
+                local dist = bandDistance(steps, band)
+                if not best or dist < best_dist then
+                    best, best_rc, best_cc, best_dist = candidate, row_clues, col_clues, dist
+                    if dist == 0 then break end
                 end
             end
         end
+    end
+    how = best and (best_dist == 0 and "band" or "near")
 
-        local no_empty_lines = true
-        for r = 1, n do
-            local has = false
-            for c = 1, n do if candidate[r][c] ~= 0 then has = true; break end end
-            if not has then no_empty_lines = false; break end
-        end
-        if no_empty_lines then
-            for c = 1, n do
-                local has = false
-                for r = 1, n do if candidate[r][c] ~= 0 then has = true; break end end
-                if not has then no_empty_lines = false; break end
-            end
-        end
-
-        if no_empty_lines then
+    -- Nothing line-solvable at all (not seen in thousands of seeds): a
+    -- fuller grid, then the full grid.
+    if not best then
+        for _ = 1, FALLBACK_ATTEMPTS do
+            local candidate = randomGrid(n, FALLBACK_DENSITY)
             local row_clues, col_clues = computeClues(candidate, n)
-            if not best_solution then
-                best_solution, best_row_clues, best_col_clues = candidate, row_clues, col_clues
-            end
-            local solutions, exhausted = countSolutions(row_clues, col_clues, n, 2, budget)
-            if solutions == 1 and not exhausted then
-                best_solution, best_row_clues, best_col_clues = candidate, row_clues, col_clues
+            if not hasEmptyLine(row_clues, col_clues, n)
+               and lineSolve(row_clues, col_clues, n) then
+                best, best_rc, best_cc, how = candidate, row_clues, col_clues, "dense"
                 break
             end
         end
     end
+    if not best then
+        best = randomGrid(n, 2)
+        best_rc, best_cc = computeClues(best, n)
+        how = "full"
+    end
 
-    self.solution, self.row_clues, self.col_clues = best_solution, best_row_clues, best_col_clues
+    self.solution, self.row_clues, self.col_clues = best, best_rc, best_cc
     self.user  = emptyGrid(n, n, 0)
     self.wrong = emptyGrid(n, n, false)
     self.undo:clear()
+    return how
 end
 
 -- tapCell: cycles user value 0 → 1 → 2 → ... → NUM_COLORS → 0
@@ -369,13 +436,25 @@ function ColorNonogramBoard:check()
     end
 end
 
+-- Won when the grid keeps every clue (1.6.0: not only when it equals the
+-- stored solution -- a save from before 1.6.0 may hold a puzzle with more
+-- than one answer, and any of them wins).
+local function sameClue(a, b)
+    if #a ~= #b then return false end
+    for i = 1, #a do
+        if a[i].len ~= b[i].len or (a[i].len > 0 and a[i].color ~= b[i].color) then
+            return false
+        end
+    end
+    return true
+end
+
 function ColorNonogramBoard:isWon()
     local n = self.n
-    for r = 1, n do
-        for c = 1, n do
-            if self.user[r][c] ~= self.solution[r][c] then
-                return false
-            end
+    local rc, cc = computeClues(self.user, n)
+    for i = 1, n do
+        if not sameClue(rc[i], self.row_clues[i]) or not sameClue(cc[i], self.col_clues[i]) then
+            return false
         end
     end
     return true
@@ -516,6 +595,13 @@ function ColorNonogramBoard:load(data)
 end
 
 ColorNonogramBoard.SIZES      = SIZES
+-- Generator internals, for the specs and measurement scripts.
+ColorNonogramBoard._computeClues  = computeClues
+ColorNonogramBoard._enumerateLines = enumerateLines
+ColorNonogramBoard._propagate     = propagate
+ColorNonogramBoard._countSolutions = countSolutions
+ColorNonogramBoard._lineSolve     = lineSolve
+ColorNonogramBoard.STEP_BAND      = STEP_BAND
 ColorNonogramBoard.DEFAULT_N  = DEFAULT_N
 ColorNonogramBoard.NUM_COLORS = NUM_COLORS
 
