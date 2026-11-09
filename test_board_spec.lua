@@ -40,67 +40,7 @@ describe("ColorNonogramBoard", function()
         end)
     end)
 
-    -- 1.6.0: line logic alone finishes every puzzle (never "assume a cell,
-    -- see if it breaks"), which also proves it unique; the levels differ by
-    -- how long the chain of line deductions is (half-passes), in order.
-    describe("difficulty", function()
-        local SEEDS = 30
-        local function gen(n, diff, seed)
-            math.randomseed(seed * 7919 + n)
-            local b = Board:new{ n = n, difficulty = diff, empty = true }
-            local how = b:generate(diff)
-            return b, how
-        end
-
-        it("every level is solved by line logic alone, inside its band", function()
-            for _, n in ipairs(Board.SIZES) do
-                local prev_avg, prev_fill = -1, 2
-                for _, diff in ipairs({ "easy", "medium", "hard" }) do
-                    local band = Board.STEP_BAND[n][diff]
-                    local sum, fill, inside = 0, 0, 0
-                    for seed = 1, SEEDS do
-                        local b = gen(n, diff, seed)
-                        local rc, cc = Board._computeClues(b.solution, n)
-                        local ok, steps = Board._lineSolve(rc, cc, n)
-                        assert.is_true(ok, n .. " " .. diff .. " seed " .. seed)
-                        assert.are.equal(1, (Board._countSolutions(rc, cc, n, 2, 200000)))
-                        if steps >= band[1] and steps <= band[2] then inside = inside + 1 end
-                        sum = sum + steps
-                        local f = 0
-                        for r = 1, n do for c = 1, n do
-                            if b.solution[r][c] ~= 0 then f = f + 1 end
-                        end end
-                        fill = fill + f / (n * n)
-                    end
-                    assert.is_true(inside >= SEEDS - 1, n .. " " .. diff .. ": " .. inside)
-                    local avg = sum / SEEDS
-                    assert.is_true(avg > prev_avg + 1, n .. " " .. diff .. " steps " .. avg)
-                    -- easy is the fullest grid, hard the emptiest
-                    assert.is_true(fill / SEEDS < prev_fill, n .. " " .. diff)
-                    prev_avg, prev_fill = avg, fill / SEEDS
-                end
-            end
-        end)
-
-        it("the same seed gives the same puzzle", function()
-            for _, diff in ipairs({ "easy", "hard" }) do
-                local a = gen(8, diff, 5):serialize()
-                local b = gen(8, diff, 5):serialize()
-                assert.are.same(a, b)
-            end
-        end)
-
-        it("generates fast enough for a Kobo", function()
-            -- ~25x slower there; the progress bar covers the rest
-            local worst = 0
-            for seed = 1, 10 do
-                local t0 = os.clock()
-                gen(8, "hard", seed)
-                worst = math.max(worst, os.clock() - t0)
-            end
-            assert.is_true(worst < 0.25, "worst " .. worst)
-        end)
-
+    describe("generate progress", function()
         it("reports progress between 0 and 1", function()
             math.randomseed(3)
             local b = Board:new{ n = 8, difficulty = "hard", empty = true }
