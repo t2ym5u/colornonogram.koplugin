@@ -53,26 +53,34 @@ describe("ColorNonogramBoard", function()
         end)
     end)
 
-    describe("tapCell / undoMove", function()
-        it("cycles a cell 0 -> 1 -> 2 -> 3 -> 0", function()
-            local b = newBoard()
-            b.user[1][1] = 0
-            b:tapCell(1, 1)
-            assert.are.equal(1, b.user[1][1])
-            b:tapCell(1, 1)
-            assert.are.equal(2, b.user[1][1])
-            b:tapCell(1, 1)
-            assert.are.equal(3, b.user[1][1])
-            b:tapCell(1, 1)
-            assert.are.equal(0, b.user[1][1])
+    describe("paintCell / undoMove", function()
+        it("applies the active marking, or clears a cell that already has it", function()
+            local M = Board.MARKED
+            for _, case in ipairs({
+                { from = 0, value = 2, to = 2 },
+                { from = 2, value = 2, to = 0 },
+                { from = 1, value = 3, to = 3 },
+                { from = 0, value = M, to = M },
+                { from = M, value = M, to = 0 },
+                { from = 2, value = M, to = M },
+                { from = M, value = 1, to = 1 },
+            }) do
+                local b = newBoard()
+                b.user[1][1] = case.from
+                b:paintCell(1, 1, case.value)
+                assert.are.equal(case.to, b.user[1][1],
+                    "from " .. case.from .. " with " .. case.value)
+            end
         end)
 
         it("undoMove restores the previous value", function()
-            local b = newBoard()
-            b.user[1][1] = 0
-            b:tapCell(1, 1)
-            assert.is_true(b:undoMove())
-            assert.are.equal(0, b.user[1][1])
+            for _, value in ipairs({ 1, Board.MARKED }) do
+                local b = newBoard()
+                b.user[1][1] = 2
+                b:paintCell(1, 1, value)
+                assert.is_true(b:undoMove())
+                assert.are.equal(2, b.user[1][1], "after painting " .. value)
+            end
         end)
 
         it("returns false when there is nothing to undo", function()
@@ -102,6 +110,71 @@ describe("ColorNonogramBoard", function()
             b.user[1][6] = 2
             assert.is_false(b:isWon())
         end)
+        
+        it("isWon treats empty marks as empty cells", function()
+            local b = newBoard()
+            b:reveal()
+            local filled_r, filled_c
+            for r = 1, b.n do
+                for c = 1, b.n do
+                    if b.solution[r][c] == 0 then b.user[r][c] = Board.MARKED end
+                    if b.solution[r][c] > 0 then filled_r, filled_c = r, c end
+                end
+            end
+            assert.is_true(b:isWon())
+            b.user[filled_r][filled_c] = Board.MARKED
+            assert.is_false(b:isWon())
+        end)
+
+        it("isWon ignores marked cells when matching deterministic clues", function()
+            local b = Board:new{ n = 6, empty = true }
+            local solution = {}
+            for r = 1, 6 do
+                solution[r] = {}
+                for c = 1, 6 do solution[r][c] = (r == c) and 1 or 0 end
+            end
+            b.solution = solution
+            b.row_clues, b.col_clues = Board._computeClues(solution, 6)
+            b:reveal()
+            for r = 1, 6 do
+                for c = 1, 6 do
+                    if solution[r][c] == 0 then b.user[r][c] = Board.MARKED end
+                end
+            end
+            assert.is_true(b:isWon())
+            b.user[1][1] = Board.MARKED
+            assert.is_false(b:isWon())
+        end)
+
+        it("check flags an empty mark only where the solution has a colour", function()
+            local b = newBoard()
+            b:reveal()
+            local empty_r, empty_c, filled_r, filled_c
+            for r = 1, b.n do
+                for c = 1, b.n do
+                    if b.solution[r][c] == 0 then empty_r, empty_c = r, c
+                    else filled_r, filled_c = r, c end
+                end
+            end
+            b.user[empty_r][empty_c]   = Board.MARKED
+            b.user[filled_r][filled_c] = Board.MARKED
+            b:check()
+            assert.is_false(b.wrong[empty_r][empty_c])
+            assert.is_true(b.wrong[filled_r][filled_c])
+        end)
+
+        it("check ignores unmarked cells", function()
+            local b = newBoard()
+            local filled_r, filled_c
+            for r = 1, b.n do
+                for c = 1, b.n do
+                    if b.solution[r][c] > 0 then filled_r, filled_c = r, c end
+                end
+            end
+            b:check()
+            assert.are.equal(0, b.user[filled_r][filled_c])
+            assert.is_false(b.wrong[filled_r][filled_c])
+        end)
 
         it("check flags a cell that differs from the solution", function()
             local b = newBoard()
@@ -119,12 +192,21 @@ describe("ColorNonogramBoard", function()
             b:clearUser()
             assert.are.equal(0, b:countFilled())
         end)
+
+        it("countFilled does not count empty marks", function()
+            local b = newBoard()
+            b:clearUser()
+            b.user[1][1] = Board.MARKED
+            b.user[1][2] = 3
+            assert.are.equal(1, b:countFilled())
+        end)
     end)
 
     describe("serialize / load", function()
         it("round-trips solution, user grid and clues", function()
             local b = newBoard()
             b:reveal()
+            b.user[1][1] = Board.MARKED
             local data = b:serialize()
 
             local b2 = Board:new({ n = 6 })

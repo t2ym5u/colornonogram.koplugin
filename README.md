@@ -19,8 +19,14 @@ Like a Nonogram but cells are filled with colours. Each clue gives a colour and 
   long that chain of deductions is: *Easy* grids are full and settle in two
   or three sweeps, *Medium* takes four or five, *Hard* grids are emptier
   and take six or more.
-- **Colour palette** — rendered as distinct patterns on greyscale e-ink
-- **Check** — highlights incorrect cells
+- **Four display modes** — choose in the menu → **Display**:
+  - *Original*: different shades of grey, for greyscale e-ink
+  - *Patterns*: solid black, stripes and dots, for greyscale e-ink
+  - *Red, green, blue*: for colour e-ink
+  - *Blue, orange, purple*: for colour e-ink, easier to tell apart with red-green colour blindness
+
+  Until you choose, colour e-readers with KOReader's colour rendering on start with *Red, green, blue*, and others with *Original*.
+- **Check** — highlights incorrect colours and empty marks; untouched cells are ignored
 - **Hint** — two taps: the first says which cell is about to give, the second acts on it. A cell that contradicts the solution is always reported before a fresh one is revealed
 - **Auto-save** — puzzle state saved and restored on next launch
 
@@ -35,7 +41,9 @@ Like a Nonogram but cells are filled with colours. Each clue gives a colour and 
 
 | Action | How |
 |--------|-----|
-| Cycle cell colour | Tap cell (the cycle ends back on empty) |
+| Choose a colour or the empty mark (X) | Tap it in the palette below the board |
+| Apply it to a cell | Tap cell |
+| Clear a cell | Tap it again with the same colour or mark |
 | Check progress | Tap **Check** |
 | New puzzle | Tap **New game** |
 | Show rules | Tap **Rules** |

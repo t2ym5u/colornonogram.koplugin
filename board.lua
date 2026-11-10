@@ -11,10 +11,14 @@ local emptyGrid = grid_utils.emptyGrid
 local SIZES      = { 6, 8 }
 local DEFAULT_N  = 8
 local NUM_COLORS = 3   -- 1, 2, 3 plus 0 = empty
+-- User-grid value for a cell the player has marked as known empty. Never
+-- appears in the solution.
+local MARKED     = -1
 
 -- ---------------------------------------------------------------------------
 -- Clue computation
 -- Color nonogram clues: consecutive runs of same color (not empty)
+-- Only positive values are filled; zero and negative user marks are empty.
 -- ---------------------------------------------------------------------------
 
 local function computeClues(grid, n)
@@ -26,9 +30,9 @@ local function computeClues(grid, n)
         local run_color, run_len = 0, 0
         for c = 1, n do
             local v = grid[r][c]
-            if v ~= 0 and v == run_color then
+            if v > 0 and v == run_color then
                 run_len = run_len + 1
-            elseif v ~= 0 then
+            elseif v > 0 then
                 if run_color ~= 0 then
                     clue[#clue + 1] = { len = run_len, color = run_color }
                 end
@@ -53,9 +57,9 @@ local function computeClues(grid, n)
         local run_color, run_len = 0, 0
         for r = 1, n do
             local v = grid[r][c]
-            if v ~= 0 and v == run_color then
+            if v > 0 and v == run_color then
                 run_len = run_len + 1
-            elseif v ~= 0 then
+            elseif v > 0 then
                 if run_color ~= 0 then
                     clue[#clue + 1] = { len = run_len, color = run_color }
                 end
@@ -393,23 +397,19 @@ function ColorNonogramBoard:generate(difficulty, on_progress)
     return how
 end
 
--- tapCell: cycles user value 0 → 1 → 2 → ... → NUM_COLORS → 0
-function ColorNonogramBoard:tapCell(r, c)
-    local old  = self.user[r][c]
-    local next
-    if old >= NUM_COLORS then
-        next = 0
-    else
-        next = old + 1
-    end
+-- Apply the player's active marking (a colour 1..NUM_COLORS, or MARKED)
+-- directly to a cell instead of cycling. A cell that already has that marking
+-- is cleared instead, so the same tap undoes a mistake without switching tools.
+function ColorNonogramBoard:paintCell(r, c, value)
+    local old = self.user[r][c]
     self.undo:push{ r = r, c = c, old = old }
-    self.user[r][c] = next
+    self.user[r][c]  = (old == value) and 0 or value
     self.wrong[r][c] = false
     return true
 end
 
--- Like tapCell(), but goes straight to a colour instead of cycling. Used by
--- the Hint button, and undoable through the same stack as a hand-made move.
+-- Like paintCell(), but doesn't toggle the cell. Used by the Hint button,
+-- and undoable through the same stack as a hand-made move.
 function ColorNonogramBoard:setCellColor(r, c, v)
     local old = self.user[r][c]
     if old == v then return true end
@@ -429,9 +429,12 @@ end
 
 function ColorNonogramBoard:check()
     local n = self.n
+    -- Zero is unanswered; MARKED is an explicit empty answer to validate.
     for r = 1, n do
         for c = 1, n do
-            self.wrong[r][c] = (self.user[r][c] ~= self.solution[r][c])
+            local value = self.user[r][c]
+            self.wrong[r][c] = value ~= 0
+                and (value == MARKED and 0 or value) ~= self.solution[r][c]
         end
     end
 end
@@ -464,7 +467,7 @@ function ColorNonogramBoard:countFilled()
     local n, count = self.n, 0
     for r = 1, n do
         for c = 1, n do
-            if self.user[r][c] ~= 0 then count = count + 1 end
+            if self.user[r][c] > 0 then count = count + 1 end
         end
     end
     return count
@@ -604,5 +607,6 @@ ColorNonogramBoard._lineSolve     = lineSolve
 ColorNonogramBoard.STEP_BAND      = STEP_BAND
 ColorNonogramBoard.DEFAULT_N  = DEFAULT_N
 ColorNonogramBoard.NUM_COLORS = NUM_COLORS
+ColorNonogramBoard.MARKED     = MARKED
 
 return ColorNonogramBoard
