@@ -7,6 +7,7 @@ local function lrequire(name)
     return package.loaded[key]
 end
 
+local ConfirmBox      = require("ui/widget/confirmbox")
 local Device          = require("device")
 local FrameContainer  = require("ui/widget/container/framecontainer")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
@@ -76,11 +77,14 @@ function ColorNonogramScreen:buildLayout()
 
     local title_bar = self:buildTitleBar(_("Color Nonogram"), function()
         return {
-            { text = _("New game"),            callback = function() self:onNewGame() end },
+            { text = _("New game"),            callback = function()
+                self:confirmDiscardProgress(_("Start a new game? Your progress on this puzzle will be lost."),
+                    _("New game"), function() self:onNewGame() end)
+            end },
             self:makeDailyButtonConfig(),
             { text = self:getSizeButtonText(), callback = function() self:openSizeMenu() end },
             { text = self:getDiffButtonText(), callback = function() self:openDifficultyMenu() end },
-            { text = _("Show solution"),       callback = function() self:onReveal() end },
+            { text = _("Show solution"),       callback = function() self:confirmReveal() end },
             self:makeRulesButtonConfig(GAME_RULES_EN, GAME_RULES_FR),
         }
     end)
@@ -91,10 +95,13 @@ function ColorNonogramScreen:buildLayout()
         self.status_text,
         VerticalSpan:new{ width = Size.span.vertical_large },
         self:buildActionBar({
-            { text = _("Check"), callback = function() self:onCheck() end },
+            { text = _("Check"),  callback = function() self:confirmCheck() end },
             { text = _("Hint"),  callback = function() self:onHint() end },
-            { text = _("Clear"), callback = function() self:onClear() end },
-            { text = _("Undo"),  callback = function() self:onUndo() end },
+            { text = _("Clear"),  callback = function()
+                self:confirmDiscardProgress(_("Clear all cells on this puzzle? This can't be undone."),
+                    _("Clear"), function() self:onClear() end)
+            end },
+            { text = _("Undo"),   callback = function() self:onUndo() end },
         }),
     }
 
@@ -131,6 +138,64 @@ function ColorNonogramScreen:buildLayout()
             VerticalGroup:new{ align = "center", controls, VerticalSpan:new{ width = self:getGutter() } })
     end
     self:updateStatus()
+end
+
+-- "New game" and "Clear" throw away the player's cells in one tap (Clear also
+-- empties the undo history), so ask first. Skip the prompt when nothing would
+-- be lost (empty or solved board) so it doesn't get in the way. The size and
+-- difficulty menus call onNewGame() directly and stay unconfirmed: choosing
+-- from a menu is already a deliberate step.
+function ColorNonogramScreen:confirmDiscardProgress(text, ok_text, action)
+    if not self:hasUnsolvedProgress() then
+        action()
+        return
+    end
+    UIManager:show(ConfirmBox:new{
+        text        = text,
+        ok_text     = ok_text,
+        ok_callback = action,
+    })
+end
+
+function ColorNonogramScreen:hasUnsolvedProgress()
+    if self.board:isWon() then return false end
+    local n = self.board.n
+    for r = 1, n do
+        for c = 1, n do
+            if self.board.user[r][c] ~= 0 then return true end
+        end
+    end
+    return false
+end
+
+-- Reveal replaces the player's cells with the answer, which spoils the
+-- puzzle even when nothing is filled in yet. So unlike
+-- confirmDiscardProgress, only an already solved board skips the prompt.
+-- Check doesn't lose anything, but it gives away which cells are wrong, so
+-- ask first in case it was tapped by accident. Nothing to give away on an
+-- empty or solved board, so those skip the prompt.
+function ColorNonogramScreen:confirmCheck()
+    if not self:hasUnsolvedProgress() then
+        self:onCheck()
+        return
+    end
+    UIManager:show(ConfirmBox:new{
+        text        = _("Check your progress? Wrong cells will be marked."),
+        ok_text     = _("Check"),
+        ok_callback = function() self:onCheck() end,
+    })
+end
+
+function ColorNonogramScreen:confirmReveal()
+    if self.board:isWon() then
+        self:onReveal()
+        return
+    end
+    UIManager:show(ConfirmBox:new{
+        text        = _("Reveal the solution?"),
+        ok_text     = _("Reveal"),
+        ok_callback = function() self:onReveal() end,
+    })
 end
 
 function ColorNonogramScreen:onCellTap(r, c)
